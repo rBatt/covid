@@ -160,8 +160,6 @@ class DailyHistCT(BaseData):
         self.df_new = df_ctp
 
     def get_df_old(self):
-        if not self.spark and self.con:
-            return self.read_psql()
         df_old_exists = bool(self.check_psql_tbl().count())
         if df_old_exists:
             self.df_old = self.read_psql()
