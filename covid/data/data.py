@@ -7,6 +7,7 @@ from pyspark.sql import functions as F
 from pyspark import SparkContext
 from pyspark.sql.types import *
 
+import psycopg2
 
 
 class BaseData:
@@ -20,13 +21,21 @@ class BaseData:
     db = 'covid'
     url = f"jdbc:postgresql://localhost:5432/{db}"
     properties = {"user":"postgres", "password":"postgres", "driver":"org.postgresql.Driver"}
+    con_args = {'host':'localhost', 'database':'covid', 'user':'postgres', 'password':'postgres'}
 
-    def __init__(self, spark, tbl_nm=None):
+    @staticmethod
+    def build_con(**kwargs):
+        return psycopg2.connect(**kwargs)
+
+    def __init__(self, spark, con=None, tbl_nm=None):
         self.spark = spark
+        self.con = con
         self.tbl_nm = tbl_nm
 
     def read_psql(self, tbl=None):
         tbl = tbl or self.tbl_nm
+        if not self.spark and self.con:
+            return pd.read_sql(f'select * from {tbl};', con=self.con)
         return self.spark.read.jdbc(url=self.url, table=tbl, properties=self.properties)
 
     def check_psql_tbl(self, tbl=None):
@@ -98,8 +107,8 @@ class DailyHistCT(BaseData):
     table = 'daily_hist_ct'
     table_api = table+'_api'
 
-    def __init__(self, spark):
-        super().__init__(spark=spark, tbl_nm=self.table)
+    def __init__(self, spark, con=None):
+        super().__init__(spark=spark, con=con, tbl_nm=self.table)
 
         self.df_new = None
         self.df_old = None
@@ -151,6 +160,8 @@ class DailyHistCT(BaseData):
         self.df_new = df_ctp
 
     def get_df_old(self):
+        if not self.spark and self.con:
+            return self.read_psql()
         df_old_exists = bool(self.check_psql_tbl().count())
         if df_old_exists:
             self.df_old = self.read_psql()
