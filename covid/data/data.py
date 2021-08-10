@@ -181,6 +181,64 @@ class DailyHistCT(BaseData):
 
 
 
+class DailyHistNYT(BaseData):
+    call = 'https://github.com/nytimes/covid-19-data/raw/master/us-counties.csv'
+    useCols = [
+        'date'
+        , 'state'
+        , 'county'
+        , 'cases'
+        , 'deaths'
+    ]
+    table = 'daily_hist_nyt'
+    table_api = table+'_api'
+
+    def __init__(self, spark, con=None):
+        super().__init__(spark=spark, con=con, tbl_nm=self.table)
+
+        self.df_new = None
+        self.df_old = None
+        self.df_needs_updating = None
+
+    def get_df_new(self):
+        response = requests.get(self.call)
+        rdd_ctp = self.spark.sparkContext.parallelize(response.text.split('\n'))
+        df_ctp = self.spark.read.csv(rdd_ctp, header=True, sep=",", inferSchema=True).select(self.useCols)
+        df_ctp = df_ctp.withColumn('date', F.to_date(df_ctp.date.cast('string'), "yyyy-MM-dd"))
+        self.df_new = df_ctp
+
+    def get_df_old(self):
+        df_old_exists = bool(self.check_psql_tbl().count())
+        if df_old_exists:
+            self.df_old = self.read_psql()
+        else:
+            self.df_old = None
+
+    def check_df(self):
+        if self.df_old:
+            self.df_needs_updating = self.are_keys_diff(
+                self.df_new
+                , self.df_old
+                , ['date','state', 'county']
+            )
+        else:
+            self.df_needs_updating = True
+
+    def update_table(self, mode='overwrite'):
+        self.write_psql(df=self.df_new, tbl=self.tbl_nm, mode=mode)
+
+
+
+if __name__=='__main__':
+    sparkClassPath = os.environ['PYSPARK_SUBMIT_ARGS'] = '--packages org.postgresql:postgresql:42.2.14 pyspark-shell'
+    spark = SparkSession\
+        .builder\
+        .appName('covid_data')\
+        .config('spark.driver.host', 'localhost')\
+        .config('spark.cores.max', '20')\
+        .getOrCreate()
+
+
 if __name__=='__main__':
     sparkClassPath = os.environ['PYSPARK_SUBMIT_ARGS'] = '--packages org.postgresql:postgresql:42.2.14 pyspark-shell'
     spark = SparkSession\
